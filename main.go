@@ -1,43 +1,25 @@
 package main
 
 import (
-	"fmt"
-	"os/exec"
+	"container-network/bridge"
+	"container-network/container"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-
-}
-
-type Container struct {
-	Name  string
-	Veth0 string
-	Veth1 string
-}
-
-func NewContainer(containerName string) (container *Container, err error) {
-	cmd := exec.Command("ip", "netns", "add", containerName)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if err := container.Init(); err != nil {
+		panic(err)
 	}
+	go container.Running()
 
-	veth0 := fmt.Sprintf("veth-%v-0", containerName)
-	veth1 := fmt.Sprintf("veth-%v-1", containerName)
-
-	cmd = exec.Command("ip", "link", "add", veth0, "type", "veth", "peer", "name", veth1)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if err := bridge.Init(); err != nil {
+		panic(err)
 	}
+	go bridge.Running()
 
-	cmd = exec.Command("ip", "link", "set", veth0, "netns", containerName)
-	_, err = cmd.CombinedOutput()
-
-	container = &Container{
-		Name:  containerName,
-		Veth0: veth0,
-		Veth1: veth1,
-	}
-	return
+	sign := make(chan os.Signal, 1)
+	signal.Notify(sign, syscall.SIGINT, syscall.SIGTERM)
+	<-sign
 }

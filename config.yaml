@@ -1,0 +1,26 @@
+network: bridge
+node:
+  - name: master
+    ip: 192.168.245.168
+    cidr: 172.17.0.0/24
+    gateway: 172.17.0.1
+    containers:
+      - name: container1
+        ip: 172.17.0.2
+        veth0: container1-veth0
+        veth1: container1-veth1
+        containerPort: 3000
+        hostPort: 3000
+        status: creating
+  - name: node1
+    ip: 192.168.245.178
+    cidr: 172.18.0.0/24
+    gateway: 172.18.0.1
+    containers:
+      - name: container2
+        ip: 172.18.0.2
+        veth0: container2-veth0
+        veth1: container2-veth1
+        containerPort: 3000
+        hostPort: 3000
+        status: creating
