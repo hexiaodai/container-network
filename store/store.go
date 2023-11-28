@@ -1,7 +1,7 @@
 package store
 
 import (
-	"container-network/f"
+	"container-network/fn"
 	"errors"
 	"os"
 	"sync"
@@ -13,7 +13,7 @@ var myStore *Store
 
 func Instance() *Store {
 	if myStore == nil {
-		value := f.Args("cfgPath")
+		value := fn.Args("cfgPath")
 		if len(value) == 0 {
 			panic("failed to parse args. arg: cfgPath")
 		}

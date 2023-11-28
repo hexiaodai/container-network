@@ -1,4 +1,4 @@
-package f
+package fn
 
 import (
 	"os"

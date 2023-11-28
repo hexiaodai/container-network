@@ -7,20 +7,27 @@ node:
     containers:
       - name: container1
         ip: 172.17.0.2
-        veth0: container1-veth0
-        veth1: container1-veth1
+        veth0: veth0container1
+        veth1: veth1container1
         containerPort: 3000
         hostPort: 3000
+        status: creating
+      - name: container2
+        ip: 172.17.0.3
+        veth0: veth0container2
+        veth1: veth1container2
+        containerPort: 3001
+        hostPort: 3001
         status: creating
   - name: node1
     ip: 192.168.245.178
     cidr: 172.18.0.0/24
     gateway: 172.18.0.1
     containers:
-      - name: container2
+      - name: container3
         ip: 172.18.0.2
-        veth0: container2-veth0
-        veth1: container2-veth1
+        veth0: veth0container3
+        veth1: veth1container3
         containerPort: 3000
         hostPort: 3000
         status: creating
