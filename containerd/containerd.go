@@ -1,9 +1,10 @@
-package container
+package containerd
 
 import (
 	"container-network/f"
 	"container-network/store"
 	"errors"
+	"fmt"
 	"os/exec"
 	"time"
 )
@@ -37,7 +38,10 @@ func Running() {
 			if _, ok := activeContailer[container.Name]; ok {
 				continue
 			}
-			setup(node, container)
+			if err := setup(node, container); err != nil {
+				f.Errorf("failed to setup container: %s", err)
+				continue
+			}
 		}
 		time.Sleep(time.Second * 3)
 	}
@@ -45,19 +49,19 @@ func Running() {
 
 func setup(node *store.Node, container *store.Container) (err error) {
 	cmd := exec.Command("ip", "netns", "add", container.Name)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to create netns. cmdout: %v, error: %v", cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "link", "add", container.Veth0, "type", "veth", "peer", "name", container.Veth1)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to create veth. cmdout: %v, error: %v", cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "link", "set", container.Veth0, "netns", container.Name)
-	_, err = cmd.CombinedOutput()
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to move veth to netns. cmdout: %v, error: %v", cmdout, err)
+	}
 
 	return
 }

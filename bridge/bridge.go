@@ -60,57 +60,48 @@ func Running() {
 
 func setup(node *store.Node, container *store.Container) (err error) {
 	cmd := exec.Command("brctl", "addbr", br0)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to create bridge. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("brctl", "addif", br0, container.Veth0)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to add veth to bridge. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "netns", "exec", container.Name, "ip", "addr", "add", fmt.Sprintf("%v/24", container.IP), "dev", container.Veth0)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to add ip to veth. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "netns", "exec", container.Name, "ip", "link", "set", container.Veth0, "up")
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to bring up veth. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "link", "set", container.Veth1, "up")
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to bring up veth. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "addr", "add", node.CIDR, "dev", br0)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to add ip to bridge. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "link", "set", br0, "up")
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to bring up bridge. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("ip", "netns", "exec", container.Name, "route", "add", "default", "gw", node.Gateway, container.Veth0)
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to add default route. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	cmd = exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "!", "-i", br0, "-p", "tcp", "-m", "tcp", "--dport", fmt.Sprintf("%v", container.ContainerPort), "-j", "DNAT", "--to-destination", fmt.Sprintf("%v:%v", container.IP, container.HostPort))
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return
+	if cmdout, err := f.CheckCMDOut(cmd.CombinedOutput()); err != nil {
+		return fmt.Errorf("failed to add iptables rule. container: %+v. cmdout: %v. error: %v", container, cmdout, err)
 	}
 
 	// cmd = exec.Command("ip", "netns", "exec", container.Name, "nc", "-lp", fmt.Sprintf("%v", container.ContainerPort))

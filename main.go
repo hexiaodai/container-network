@@ -2,17 +2,17 @@ package main
 
 import (
 	"container-network/bridge"
-	"container-network/container"
+	"container-network/containerd"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
 func main() {
-	if err := container.Init(); err != nil {
+	if err := containerd.Init(); err != nil {
 		panic(err)
 	}
-	go container.Running()
+	go containerd.Running()
 
 	if err := bridge.Init(); err != nil {
 		panic(err)
