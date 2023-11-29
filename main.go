@@ -1,9 +1,9 @@
 package main
 
 import (
-	"container-network/bridge"
 	"container-network/containerd"
 	"container-network/fn"
+	"container-network/network"
 	"container-network/store"
 	"context"
 	"os"
@@ -19,8 +19,8 @@ func main() {
 	containerd := containerd.New()
 	store.Instance.RegisterEvents(containerd)
 
-	bridge := bridge.New()
-	store.Instance.RegisterEvents(bridge)
+	mgr := network.New()
+	mgr.Running(ctx)
 
 	wg.Add(1)
 	go store.Instance.Running(ctx, &wg)
@@ -33,8 +33,8 @@ func main() {
 	wg.Wait()
 
 	if fn.Args("cleanup") != "false" {
-		if err := bridge.Cleanup(); err != nil {
-			fn.Errorf("error cleaning up bridge: %v", err)
+		if err := mgr.Cleanup(); err != nil {
+			fn.Errorf("error cleaning up network: %v", err)
 		}
 		if err := containerd.Cleanup(); err != nil {
 			fn.Errorf("error cleaning up container: %v", err)

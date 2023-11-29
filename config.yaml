@@ -2,6 +2,7 @@ network: bridge
 node:
   - name: master
     ip: 192.168.245.168
+    inerface: ens33
     cidr: 172.17.0.0/24
     gateway: 172.17.0.1
     containers:
@@ -11,16 +12,15 @@ node:
         veth1: veth1container1
         containerPort: 3000
         hostPort: 3000
-        status: creating
       - name: container2
         ip: 172.17.0.3
         veth0: veth0container2
         veth1: veth1container2
         containerPort: 3001
         hostPort: 3001
-        status: creating
   - name: node1
     ip: 192.168.245.178
+    inerface: ens33
     cidr: 172.18.0.0/24
     gateway: 172.18.0.1
     containers:
@@ -30,11 +30,9 @@ node:
         veth1: veth1container3
         containerPort: 3000
         hostPort: 3000
-        status: creating
       - name: container4
         ip: 172.18.0.3
         veth0: veth0container4
         veth1: veth1container4
         containerPort: 3000
         hostPort: 3000
-        status: creating

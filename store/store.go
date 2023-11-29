@@ -25,8 +25,12 @@ func new() *Store {
 	if cfgPath == "" {
 		cfgPath = "config.yaml"
 	}
+	absPath, err := filepath.Abs(cfgPath)
+	if err != nil {
+		panic(err)
+	}
 	s := &Store{
-		Path:  cfgPath,
+		Path:  absPath,
 		value: atomic.Value{},
 	}
 	if err := s.updateHandler(); err != nil {
@@ -55,15 +59,11 @@ func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 	}
 	defer watcher.Close()
 
-	absPath, err := filepath.Abs(s.Path)
-	if err != nil {
-		panic(err)
-	}
-	if err := watcher.Add(absPath); err != nil {
+	if err := watcher.Add(s.Path); err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("Watching changes for file: %s\n", absPath)
+	fmt.Printf("Watching changes for file: %s\n", s.Path)
 
 	for {
 		select {
@@ -74,7 +74,7 @@ func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 			if !ok {
 				return
 			}
-			if event.Op&fsnotify.Write == fsnotify.Write {
+			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Rename == fsnotify.Rename {
 				if err := s.updateHandler(); err != nil {
 					fn.Errorf("failed to update store: %v", err)
 				}
@@ -164,6 +164,7 @@ type Cluster struct {
 
 type Node struct {
 	Name       string       `yaml:"name"`
+	Inertface  string       `yaml:"interface"`
 	IP         string       `yaml:"ip"`
 	CIDR       string       `yaml:"cidr"`
 	Gateway    string       `yaml:"gateway"`
@@ -171,7 +172,6 @@ type Node struct {
 }
 
 type Container struct {
-	Status        string `yaml:"status"`
 	Name          string `yaml:"name"`
 	IP            string `yaml:"ip"`
 	Veth0         string `yaml:"veth0"`
