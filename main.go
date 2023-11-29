@@ -3,6 +3,8 @@ package main
 import (
 	"container-network/bridge"
 	"container-network/containerd"
+	"container-network/fn"
+	"container-network/store"
 	"context"
 	"os"
 	"os/signal"
@@ -14,17 +16,14 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := sync.WaitGroup{}
 
-	if err := containerd.Init(); err != nil {
-		panic(err)
-	}
-	wg.Add(1)
-	go containerd.Running(ctx, &wg)
+	containerd := containerd.New()
+	store.Instance.RegisterEvents(containerd)
 
-	if err := bridge.Init(); err != nil {
-		panic(err)
-	}
+	bridge := bridge.New()
+	store.Instance.RegisterEvents(bridge)
+
 	wg.Add(1)
-	go bridge.Running(ctx, &wg)
+	go store.Instance.Running(ctx, &wg)
 
 	sign := make(chan os.Signal, 1)
 	signal.Notify(sign, syscall.SIGINT, syscall.SIGTERM)
@@ -32,4 +31,13 @@ func main() {
 	cancel()
 
 	wg.Wait()
+
+	if fn.Args("cleanup") != "false" {
+		if err := bridge.Cleanup(); err != nil {
+			fn.Errorf("error cleaning up bridge: %v", err)
+		}
+		if err := containerd.Cleanup(); err != nil {
+			fn.Errorf("error cleaning up container: %v", err)
+		}
+	}
 }

@@ -31,3 +31,10 @@ node:
         containerPort: 3000
         hostPort: 3000
         status: creating
+      - name: container4
+        ip: 172.18.0.3
+        veth0: veth0container4
+        veth1: veth1container4
+        containerPort: 3000
+        hostPort: 3000
+        status: creating

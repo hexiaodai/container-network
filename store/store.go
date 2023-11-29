@@ -2,98 +2,129 @@ package store
 
 import (
 	"container-network/fn"
+	"context"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 
+	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v2"
 )
 
-var myStore *Store
+var Instance *Store = new()
 
-func Instance() *Store {
-	if myStore == nil {
-		value := fn.Args("cfgPath")
-		if len(value) == 0 {
-			panic("failed to parse args. arg: cfgPath")
-		}
-		myStore = New(value)
-	}
-	return myStore
+type Events interface {
+	Update(context.Context, *Cluster)
 }
 
-func New(dbPath string) *Store {
-	return &Store{
-		Path: dbPath,
+func new() *Store {
+	cfgPath := fn.Args("cfgPath")
+	if cfgPath == "" {
+		cfgPath = "config.yaml"
 	}
+	s := &Store{
+		Path:  cfgPath,
+		value: atomic.Value{},
+	}
+	if err := s.updateHandler(); err != nil {
+		panic(fmt.Errorf("failed to updating store: %s", err))
+	}
+	return s
 }
 
 type Store struct {
-	Path string
+	Path   string
+	value  atomic.Value // *Cluster
+	events []Events
 	sync.Mutex
 }
 
-func (s *Store) Join(name, ip, cidr string) error {
-	s.Lock()
-	defer s.Unlock()
+func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
+	fmt.Println("running store")
 
-	data, err := os.ReadFile(s.Path)
+	for _, e := range s.events {
+		e.Update(ctx, s.value.Load().(*Cluster))
+	}
+
+	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		panic(err)
 	}
-	cluster := &Cluster{}
-	if err := yaml.Unmarshal(data, cluster); err != nil {
-		return err
-	}
-	cluster.Node = append(cluster.Node, &Node{Name: name, IP: ip, CIDR: cidr})
+	defer watcher.Close()
 
-	yamldata, err := yaml.Marshal(cluster)
+	absPath, err := filepath.Abs(s.Path)
 	if err != nil {
-		return err
+		panic(err)
+	}
+	if err := watcher.Add(absPath); err != nil {
+		panic(err)
 	}
 
-	return os.WriteFile(s.Path, yamldata, 0644)
-}
+	fmt.Printf("Watching changes for file: %s\n", absPath)
 
-func (s *Store) WriteContainer(node string, container *Container) error {
-	s.Lock()
-	defer s.Unlock()
-
-	data, err := os.ReadFile(s.Path)
-	if err != nil {
-		return err
-	}
-	cluster := &Cluster{}
-	if err := yaml.Unmarshal(data, cluster); err != nil {
-		return err
-	}
-
-	for _, n := range cluster.Node {
-		if n.Name == node {
-			n.Containers = append(n.Containers, container)
-			break
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Done()
+			return
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				if err := s.updateHandler(); err != nil {
+					fn.Errorf("failed to update store: %v", err)
+				}
+				cluster := s.value.Load().(*Cluster)
+				if cluster == nil {
+					fn.Errorf("failed to load cluster from store")
+					continue
+				}
+				fmt.Println("sending events...")
+				for _, e := range s.events {
+					e.Update(ctx, cluster)
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			fn.Errorf(err.Error())
 		}
 	}
+}
 
-	yamldata, err := yaml.Marshal(cluster)
+func (s *Store) RegisterEvents(e Events) {
+	s.events = append(s.events, e)
+}
+
+func (s *Store) updateHandler() error {
+	s.Lock()
+	defer s.Unlock()
+
+	data, err := os.ReadFile(s.Path)
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(s.Path, yamldata, 0644)
+	cluster := &Cluster{}
+	if err := yaml.Unmarshal(data, cluster); err != nil {
+		return err
+	}
+	s.value.Store(cluster)
+	return nil
 }
 
 func (s *Store) ReadContainer(node, container string) (*Container, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	data, err := os.ReadFile(s.Path)
-	if err != nil {
-		return nil, err
+	value := s.value.Load()
+	if value == nil {
+		return nil, errors.New("ReadContainer: value.Load() is nil")
 	}
-	cluster := &Cluster{}
-	if err := yaml.Unmarshal(data, cluster); err != nil {
-		return nil, err
+	cluster := value.(*Cluster)
+	if cluster == nil {
+		return nil, fmt.Errorf("store.Cluster is nil")
 	}
 
 	for _, n := range cluster.Node {
@@ -109,16 +140,13 @@ func (s *Store) ReadContainer(node, container string) (*Container, error) {
 }
 
 func (s *Store) ReadNode(node string) (*Node, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	data, err := os.ReadFile(s.Path)
-	if err != nil {
-		return nil, err
+	value := s.value.Load()
+	if value == nil {
+		return nil, errors.New("ReadNode: value.Load() is nil")
 	}
-	cluster := &Cluster{}
-	if err := yaml.Unmarshal(data, cluster); err != nil {
-		return nil, err
+	cluster := value.(*Cluster)
+	if cluster == nil {
+		return nil, fmt.Errorf("store.Cluster is nil")
 	}
 
 	for _, n := range cluster.Node {

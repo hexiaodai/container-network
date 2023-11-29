@@ -4,62 +4,45 @@ import (
 	"container-network/fn"
 	"container-network/store"
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
-	"sync"
-	"time"
 )
 
-var (
-	nodeName = ""
-)
-
-func Init() error {
-	nodeName = fn.Args("node")
-	if len(nodeName) == 0 {
-		return errors.New("failed to parse args. arg: node")
+func New() *Containerd {
+	return &Containerd{
+		NodeName: fn.Args("node"),
 	}
-	return nil
 }
 
-func Running(ctx context.Context, wg *sync.WaitGroup) {
-	for {
-		select {
-		case <-ctx.Done():
-			if err := cleanup(); err != nil {
-				fn.Errorf("error cleaning up container: %v", err)
-			}
-			wg.Done()
-			return
-		default:
-			time.Sleep(time.Second * 5)
-		}
+type Containerd struct {
+	NodeName string
+}
 
-		node, err := store.Instance().ReadNode(nodeName)
-		if err != nil {
-			fn.Errorf("failed to read node: %s", err)
+func (c *Containerd) Update(ctx context.Context, cluster *store.Cluster) {
+	fmt.Println("updating container")
+
+	node, err := store.Instance.ReadNode(c.NodeName)
+	if err != nil {
+		fn.Errorf("failed to read node: %s", err)
+		return
+	}
+	activeContailer, err := fn.ActiveContailer()
+	if err != nil {
+		fn.Errorf("failed to get active container: %s", err)
+		return
+	}
+	for _, container := range node.Containers {
+		if _, ok := activeContailer[container.Name]; ok {
 			continue
 		}
-
-		// activeContailer, err := f.ActiveContailer()
-		// if err != nil {
-		// 	f.Errorf("failed to get active container: %s", err)
-		// 	continue
-		// }
-		for _, container := range node.Containers {
-			// if _, ok := activeContailer[container.Name]; ok {
-			// 	continue
-			// }
-			if err := setup(node, container); err != nil {
-				fn.Errorf("failed to setup container: %s", err)
-				continue
-			}
+		if err := c.setup(node, container); err != nil {
+			fn.Errorf("failed to setup container: %s", err)
+			continue
 		}
 	}
 }
 
-func setup(node *store.Node, container *store.Container) (err error) {
+func (c *Containerd) setup(node *store.Node, container *store.Container) (err error) {
 	cmd := exec.Command("ip", "netns", "add", container.Name)
 	cmdout, err := cmd.CombinedOutput()
 	if cmdout, err := fn.CheckCMDOut(cmdout, err, "File exists"); err != nil {
@@ -81,8 +64,8 @@ func setup(node *store.Node, container *store.Container) (err error) {
 	return nil
 }
 
-func cleanup() error {
-	node, err := store.Instance().ReadNode(nodeName)
+func (c *Containerd) Cleanup() error {
+	node, err := store.Instance.ReadNode(c.NodeName)
 	if err != nil {
 		return fmt.Errorf("failed to read node: %s", err)
 	}
