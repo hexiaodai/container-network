@@ -1,7 +1,6 @@
-network: bridge
 node:
   - name: master
-    inerface: ens33
+    interface: ens33
     ip: 192.168.245.168
     cidr: 172.18.10.0/24
     gateway: 172.18.10.1
@@ -16,7 +15,7 @@ node:
         containerPort: 3000
         hostPort: 3000
   - name: node1
-    inerface: ens33
+    interface: ens33
     ip: 192.168.245.172
     cidr: 172.18.20.0/24
     gateway: 172.18.20.1

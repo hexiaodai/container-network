@@ -64,8 +64,8 @@ func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 
 	switch s.nodeName {
 	case "master":
-		s.master(ctx, wg)
 		go s.apiserver(ctx)
+		s.master(ctx, wg)
 	default:
 		s.slave(ctx, wg)
 	}
@@ -73,7 +73,7 @@ func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 
 func (s *Store) apiserver(ctx context.Context) {
 	router := httprouter.New()
-	router.POST("/store", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+	router.GET("/store", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		cluster := s.value.Load().(*Cluster)
 		if cluster == nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -89,9 +89,8 @@ func (s *Store) apiserver(ctx context.Context) {
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, string(bys))
 	})
-	addr := fmt.Errorf("%v:8080", fn.Args("apiserver"))
-	fmt.Printf("Listening %v", addr)
-	log.Fatal(http.ListenAndServe(":8080", router))
+	fmt.Printf("Listening %v", fn.Args("apiserver"))
+	log.Fatal(http.ListenAndServe(fn.Args("apiserver"), router))
 }
 
 func (s *Store) master(ctx context.Context, wg *sync.WaitGroup) {
@@ -175,6 +174,9 @@ func (s *Store) updateWithFile() error {
 	if err != nil {
 		return err
 	}
+	if len(data) == 0 {
+		return nil
+	}
 	cluster := &Cluster{}
 	if err := yaml.Unmarshal(data, cluster); err != nil {
 		return err
@@ -192,8 +194,8 @@ func (s *Store) updateWithRESTAPI() error {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
-	addr := fmt.Errorf("%v:8080", fn.Args("apiserver"))
-	req, err := http.NewRequest("GET", fmt.Sprintf("%v/store", addr), nil)
+	api := fmt.Sprintf("http://%v/store", fn.Args("apiserver"))
+	req, err := http.NewRequest("GET", api, nil)
 	if err != nil {
 		return err
 	}
@@ -258,8 +260,7 @@ func (s *Store) ReadNode(node string) (*Node, error) {
 }
 
 type Cluster struct {
-	Network string  `yaml:"network"`
-	Node    []*Node `yaml:"node"`
+	Node []*Node `yaml:"node"`
 }
 
 type Node struct {

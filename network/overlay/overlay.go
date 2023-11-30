@@ -58,7 +58,7 @@ func (o *Overlay) Update(ctx context.Context, cluster *store.Cluster) {
 		}
 		cmd := exec.Command("ip", "route", "add", node.CIDR, "dev", o.vxlan100)
 		cmdout, err := cmd.CombinedOutput()
-		if cmdout, err := fn.CheckCMDOut(cmdout, err); err != nil {
+		if cmdout, err := fn.CheckCMDOut(cmdout, err, "File exists"); err != nil {
 			fn.Errorf("failed to add CIDR to vxlan100. node: %v. cmdout: %v. error: %v", node, cmdout, err)
 		}
 
