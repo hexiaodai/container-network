@@ -20,7 +20,9 @@ func main() {
 	store.Instance.RegisterEvents(containerd)
 
 	mgr := network.New()
-	mgr.Running(ctx)
+	if err := mgr.Start(ctx); err != nil {
+		panic(err)
+	}
 
 	wg.Add(1)
 	go store.Instance.Running(ctx, &wg)

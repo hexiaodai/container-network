@@ -126,11 +126,6 @@ func (b *Bridge) setup(node *store.Node, container *store.Container) (err error)
 		}
 	}
 
-	// cmd = exec.Command("ip", "netns", "exec", container.Name, "nc", "-lp", fmt.Sprintf("%v", container.ContainerPort))
-	// _, err = cmd.CombinedOutput()
-	// if err != nil {
-	// 	return
-	// }
 	return nil
 }
 

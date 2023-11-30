@@ -3,14 +3,21 @@ package store
 import (
 	"container-network/fn"
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/julienschmidt/httprouter"
 	"gopkg.in/yaml.v2"
 )
 
@@ -30,19 +37,21 @@ func new() *Store {
 		panic(err)
 	}
 	s := &Store{
-		Path:  absPath,
-		value: atomic.Value{},
+		nodeName: fn.Args("node"),
+		path:     absPath,
+		value:    atomic.Value{},
 	}
-	if err := s.updateHandler(); err != nil {
+	if err := s.update(); err != nil {
 		panic(fmt.Errorf("failed to updating store: %s", err))
 	}
 	return s
 }
 
 type Store struct {
-	Path   string
-	value  atomic.Value // *Cluster
-	events []Events
+	path     string
+	nodeName string
+	value    atomic.Value // *Cluster
+	events   []Events
 	sync.Mutex
 }
 
@@ -53,17 +62,50 @@ func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 		e.Update(ctx, s.value.Load().(*Cluster))
 	}
 
+	switch s.nodeName {
+	case "master":
+		s.master(ctx, wg)
+		go s.apiserver(ctx)
+	default:
+		s.slave(ctx, wg)
+	}
+}
+
+func (s *Store) apiserver(ctx context.Context) {
+	router := httprouter.New()
+	router.POST("/store", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		cluster := s.value.Load().(*Cluster)
+		if cluster == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, "store.Cluster is nil")
+			return
+		}
+		bys, err := json.Marshal(cluster)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, string(bys))
+	})
+	addr := fmt.Errorf("%v:8080", fn.Args("apiserver"))
+	fmt.Printf("Listening %v", addr)
+	log.Fatal(http.ListenAndServe(":8080", router))
+}
+
+func (s *Store) master(ctx context.Context, wg *sync.WaitGroup) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		panic(err)
 	}
 	defer watcher.Close()
 
-	if err := watcher.Add(s.Path); err != nil {
+	if err := watcher.Add(s.path); err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("Watching changes for file: %s\n", s.Path)
+	fmt.Printf("Watching changes for file: %s\n", s.path)
 
 	for {
 		select {
@@ -74,8 +116,9 @@ func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 			if !ok {
 				return
 			}
-			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Rename == fsnotify.Rename {
-				if err := s.updateHandler(); err != nil {
+			//  || event.Op&fsnotify.Rename == fsnotify.Rename
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				if err := s.updateWithFile(); err != nil {
 					fn.Errorf("failed to update store: %v", err)
 				}
 				cluster := s.value.Load().(*Cluster)
@@ -97,20 +140,77 @@ func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
+func (s *Store) slave(ctx context.Context, wg *sync.WaitGroup) {
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Done()
+			return
+		case <-time.After(time.Second * 5):
+			if err := s.update(); err != nil {
+				fn.Errorf("failed to update store: %v", err)
+			}
+		}
+	}
+}
+
 func (s *Store) RegisterEvents(e Events) {
 	s.events = append(s.events, e)
 }
 
-func (s *Store) updateHandler() error {
+func (s *Store) update() error {
+	switch s.nodeName {
+	case "master":
+		return s.updateWithFile()
+	default:
+		return s.updateWithRESTAPI()
+	}
+}
+
+func (s *Store) updateWithFile() error {
 	s.Lock()
 	defer s.Unlock()
 
-	data, err := os.ReadFile(s.Path)
+	data, err := os.ReadFile(s.path)
 	if err != nil {
 		return err
 	}
 	cluster := &Cluster{}
 	if err := yaml.Unmarshal(data, cluster); err != nil {
+		return err
+	}
+	s.value.Store(cluster)
+	return nil
+}
+
+func (s *Store) updateWithRESTAPI() error {
+	s.Lock()
+	defer s.Unlock()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	addr := fmt.Errorf("%v:8080", fn.Args("apiserver"))
+	req, err := http.NewRequest("GET", fmt.Sprintf("%v/store", addr), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	bysBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get store: msg: %v. statusCode: %v", string(bysBody), resp.StatusCode)
+	}
+	cluster := &Cluster{}
+	if err := json.Unmarshal(bysBody, cluster); err != nil {
 		return err
 	}
 	s.value.Store(cluster)
@@ -168,7 +268,13 @@ type Node struct {
 	IP         string       `yaml:"ip"`
 	CIDR       string       `yaml:"cidr"`
 	Gateway    string       `yaml:"gateway"`
+	VXLAN      *VXLAN       `yaml:"vxlan"`
 	Containers []*Container `yaml:"containers"`
+}
+
+type VXLAN struct {
+	MAC string `yaml:"mac"`
+	IP  string `yaml:"ip"`
 }
 
 type Container struct {
