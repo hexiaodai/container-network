@@ -6,7 +6,7 @@ node:
     gateway: 172.18.10.1
     vxlan:
       ip: 172.18.10.0/32
-      mac: f6:35:84:38:60:f1
+      mac: ""
     containers:
       - name: container1
         ip: 172.18.10.2
@@ -21,7 +21,7 @@ node:
     gateway: 172.18.20.1
     vxlan:
       ip: 172.18.20.0/32
-      mac: 16:8f:3f:90:b9:2e
+      mac: ""
     containers:
       - name: container2
         ip: 172.18.20.2

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"container-network/fn"
 	"context"
 	"crypto/tls"
@@ -76,18 +77,35 @@ func (s *Store) apiserver(ctx context.Context) {
 	router.GET("/store", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		cluster := s.value.Load().(*Cluster)
 		if cluster == nil {
-			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, "store.Cluster is nil")
+			http.Error(w, "store.Cluster is nil", http.StatusBadRequest)
 			return
 		}
 		bys, err := json.Marshal(cluster)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, err.Error())
+			http.Error(w, "failed to marshal cluster", http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, string(bys))
+	})
+	router.POST("/vxlan/mac", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			return
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(body, &data); err != nil {
+			http.Error(w, "failed to parse request body", http.StatusBadRequest)
+			return
+		}
+		nodeName := data["nodeName"].(string)
+		mac := data["mac"].(string)
+		if err := s.WriteVXLANMAC(nodeName, mac); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	})
 	fmt.Printf("Listening %v", fn.Args("apiserver"))
 	log.Fatal(http.ListenAndServe(fn.Args("apiserver"), router))
@@ -239,6 +257,75 @@ func (s *Store) ReadContainer(node, container string) (*Container, error) {
 		}
 	}
 	return nil, errors.New("NotFound")
+}
+
+func (s *Store) WriteVXLANMAC(nodeName, mac string) error {
+	switch s.nodeName {
+	case "master":
+		return s.writeVXLANMACWithFile(nodeName, mac)
+	default:
+		return s.writeVXLANMACWithRESTAPI(nodeName, mac)
+	}
+}
+
+func (s *Store) writeVXLANMACWithFile(nodeName, mac string) error {
+	s.Lock()
+	defer s.Unlock()
+
+	value := s.value.Load()
+	if value == nil {
+		return errors.New("WriteVXLANMAC: value.Load() is nil")
+	}
+
+	cluster := value.(*Cluster)
+	if cluster == nil {
+		return errors.New("WriteVXLANMAC: value.(*Cluster) is nil")
+	}
+	for _, node := range cluster.Node {
+		if node.Name == nodeName {
+			node.VXLAN.MAC = mac
+			return nil
+		}
+	}
+	return nil
+}
+
+func (s *Store) writeVXLANMACWithRESTAPI(nodeName, mac string) error {
+	s.Lock()
+	defer s.Unlock()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	api := fmt.Sprintf("http://%v/vxlan/mac", fn.Args("apiserver"))
+	data := map[string]string{
+		"nodeName": nodeName,
+		"mac":      mac,
+	}
+	var body []byte
+	body, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", api, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	bysBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to write vxlan mac: msg: %v. statusCode: %v", string(bysBody), resp.StatusCode)
+	}
+	return nil
 }
 
 func (s *Store) ReadNode(node string) (*Node, error) {

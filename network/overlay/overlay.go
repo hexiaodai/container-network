@@ -4,8 +4,10 @@ import (
 	"container-network/fn"
 	"container-network/store"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 )
 
 func New() *Overlay {
@@ -44,6 +46,23 @@ func (o *Overlay) init() error {
 	cmdout, err = cmd.CombinedOutput()
 	if cmdout, err := fn.CheckCMDOut(cmdout, err); err != nil {
 		return fmt.Errorf("failed to set vxlan100 up. cmdout: %v. error: %v", cmdout, err)
+	}
+
+	cmd = exec.Command("ip", "link", "show")
+	cmdout, err = cmd.CombinedOutput()
+	cmdoutstr, err := fn.CheckCMDOut(cmdout, err)
+	if err != nil {
+		return fmt.Errorf("failed to show vxlan100. cmdout: %v. error: %v", cmdout, err)
+	}
+	re := regexp.MustCompile(`vxlan100:.*?([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})`)
+	match := re.FindStringSubmatch(cmdoutstr)
+	if len(match) < 2 {
+		return errors.New("no MAC address found for vxlan100")
+	}
+	mac := match[1]
+
+	if err := store.Instance.WriteVXLANMAC(o.NodeName, mac); err != nil {
+		return fmt.Errorf("failed to write vxlan100 MAC address. error: %v", err)
 	}
 
 	return nil
