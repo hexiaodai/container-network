@@ -4,9 +4,7 @@ import (
 	"container-network/fn"
 	"container-network/network/bridge"
 	"container-network/network/overlay"
-	"container-network/store"
 	"context"
-	"fmt"
 )
 
 func New() *Mgr {
@@ -21,24 +19,23 @@ type Mgr struct {
 	overlay *overlay.Overlay
 }
 
-func (m *Mgr) Start(ctx context.Context) error {
+func (m *Mgr) Running(ctx context.Context) {
 	m.bridge = bridge.New()
-	store.Instance.RegisterEvents(m.bridge)
+	go m.bridge.Running(ctx)
 
 	switch m.network {
 	case "overlay":
 		m.overlay = overlay.New()
-		store.Instance.RegisterEvents(m.overlay)
+		m.overlay.Running(ctx)
 	case "route":
 	default:
-		return fmt.Errorf("unknown network type: %v", m.network)
+		// return fmt.Errorf("unknown network type: %v", m.network)
 	}
-	return nil
 }
 
-func (m *Mgr) Cleanup() error {
-	if err := m.bridge.Cleanup(); err != nil {
-		return err
-	}
-	return m.overlay.Cleanup()
-}
+// func (m *Mgr) Cleanup() error {
+// 	if err := m.bridge.Cleanup(); err != nil {
+// 		return err
+// 	}
+// 	return m.overlay.Cleanup()
+// }

@@ -1,31 +1,16 @@
-node:
-  - name: master
-    interface: ens33
-    ip: 192.168.245.168
+current:
+  interface: ens33
+  ip: 192.168.245.168
+  container:
     cidr: 172.18.10.0/24
     gateway: 172.18.10.1
-    vxlan:
-      ip: 172.18.10.0/32
-      mac: ""
-    containers:
-      - name: container1
-        ip: 172.18.10.2
-        veth0: veth0container1
-        veth1: veth1container1
-        containerPort: 3000
-        hostPort: 3000
-  - name: node1
-    interface: ens33
+  vxlan:
+    ip: 172.18.10.0
+nodes:
+  - interface: ens33
     ip: 192.168.245.172
-    cidr: 172.18.20.0/24
-    gateway: 172.18.20.1
+    container:
+      cidr: 172.18.20.0/24
+      gateway: 172.18.20.1
     vxlan:
-      ip: 172.18.20.0/32
-      mac: ""
-    containers:
-      - name: container2
-        ip: 172.18.20.2
-        veth0: veth0container2
-        veth1: veth1container2
-        containerPort: 3000
-        hostPort: 3000
+      ip: 172.18.20.0
