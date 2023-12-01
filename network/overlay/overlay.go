@@ -4,7 +4,6 @@ import (
 	"container-network/fn"
 	"container-network/store"
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -48,20 +47,18 @@ func (o *Overlay) init() error {
 		return fmt.Errorf("failed to set vxlan100 up. cmdout: %v. error: %v", cmdout, err)
 	}
 
-	cmd = exec.Command("ip", "link", "show")
+	cmd = exec.Command("ip", "link", "show", o.vxlan100)
 	cmdout, err = cmd.CombinedOutput()
 	cmdoutstr, err := fn.CheckCMDOut(cmdout, err)
 	if err != nil {
 		return fmt.Errorf("failed to show vxlan100. cmdout: %v. error: %v", cmdout, err)
 	}
-	re := regexp.MustCompile(`vxlan100:.*?([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})`)
-	match := re.FindStringSubmatch(cmdoutstr)
-	if len(match) < 2 {
-		return errors.New("no MAC address found for vxlan100")
+	re := regexp.MustCompile(`link/ether\s([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})`)
+	matches := re.FindStringSubmatch(cmdoutstr)
+	if len(matches) < 2 {
+		return fmt.Errorf("no MAC address found for vxlan100. cmdout: %v", cmdoutstr)
 	}
-	mac := match[1]
-
-	if err := store.Instance.WriteVXLANMAC(o.NodeName, mac); err != nil {
+	if err := store.Instance.WriteVXLANMAC(o.NodeName, matches[1]); err != nil {
 		return fmt.Errorf("failed to write vxlan100 MAC address. error: %v", err)
 	}
 
@@ -69,7 +66,7 @@ func (o *Overlay) init() error {
 }
 
 func (o *Overlay) Update(ctx context.Context, cluster *store.Cluster) {
-	fmt.Println("updating overlay")
+	// fmt.Println("updating overlay")
 
 	for _, node := range cluster.Node {
 		if node.Name == o.NodeName {
@@ -85,13 +82,13 @@ func (o *Overlay) Update(ctx context.Context, cluster *store.Cluster) {
 			cmd = exec.Command("ip", "neighbor", "add", container.IP, "lladdr", node.VXLAN.MAC, "dev", o.vxlan100)
 			cmdout, err = cmd.CombinedOutput()
 			if cmdout, err := fn.CheckCMDOut(cmdout, err, "File exists"); err != nil {
-				fn.Errorf("failed to add container to vxlan100. node: %v. container: %v. cmdout: %v. error: %v", node, container, cmdout, err)
+				fn.Errorf("failed to add container to vxlan100. node: %+v. VXLAN: %+v. container: %+v. cmdout: %v. error: %v", node, node.VXLAN, container, cmdout, err)
 			}
 
 			cmd = exec.Command("bridge", "fdb", "append", node.VXLAN.MAC, "dev", o.vxlan100, "dst", node.IP)
 			cmdout, err = cmd.CombinedOutput()
 			if cmdout, err := fn.CheckCMDOut(cmdout, err); err != nil {
-				fn.Errorf("failed to add container to vxlan100. node: %v. container: %v. cmdout: %v. error: %v", node, container, cmdout, err)
+				fn.Errorf("failed to add container to vxlan100. node: %+v. VXLAN: %+v. container: %+v. cmdout: %v. error: %v", node, node.VXLAN, container, cmdout, err)
 			}
 		}
 	}

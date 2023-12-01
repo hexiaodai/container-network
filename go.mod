@@ -8,4 +8,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-require golang.org/x/sys v0.4.0 // indirect
+require (
+	github.com/rjeczalik/notify v0.9.3
+	golang.org/x/sys v0.4.0 // indirect
+)

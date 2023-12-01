@@ -17,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/julienschmidt/httprouter"
 	"gopkg.in/yaml.v2"
 )
@@ -42,8 +41,8 @@ func new() *Store {
 		path:     absPath,
 		value:    atomic.Value{},
 	}
-	if err := s.update(); err != nil {
-		panic(fmt.Errorf("failed to updating store: %s", err))
+	if err := s.load(); err != nil {
+		panic(fmt.Errorf("failed to loading store: %s", err))
 	}
 	return s
 }
@@ -59,9 +58,9 @@ type Store struct {
 func (s *Store) Running(ctx context.Context, wg *sync.WaitGroup) {
 	fmt.Println("running store")
 
-	for _, e := range s.events {
-		e.Update(ctx, s.value.Load().(*Cluster))
-	}
+	// for _, e := range s.events {
+	// 	e.Update(ctx, s.value.Load().(*Cluster))
+	// }
 
 	switch s.nodeName {
 	case "master":
@@ -111,17 +110,103 @@ func (s *Store) apiserver(ctx context.Context) {
 	log.Fatal(http.ListenAndServe(fn.Args("apiserver"), router))
 }
 
+// func (s *Store) master(ctx context.Context, wg *sync.WaitGroup) {
+// 	watcher, err := fsnotify.NewWatcher()
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	defer watcher.Close()
+
+// 	if err := watcher.Add(s.path); err != nil {
+// 		panic(err)
+// 	}
+
+// 	fmt.Printf("Watching changes for file: %s\n", s.path)
+
+// 	for {
+// 		select {
+// 		case <-ctx.Done():
+// 			wg.Done()
+// 			return
+// 		case event, ok := <-watcher.Events:
+// 			if !ok {
+// 				continue
+// 			}
+// 			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Rename == fsnotify.Rename {
+// 				if err := s.load(); err != nil {
+// 					fn.Errorf("failed to load store: %v", err)
+// 				}
+// 				cluster := s.value.Load().(*Cluster)
+// 				if cluster == nil {
+// 					fn.Errorf("failed to load cluster from store")
+// 					continue
+// 				}
+// 				fmt.Println("sending events...")
+// 				for _, e := range s.events {
+// 					e.Update(ctx, cluster)
+// 				}
+// 			}
+// 		case err, ok := <-watcher.Errors:
+// 			if !ok {
+// 				return
+// 			}
+// 			fn.Errorf(err.Error())
+// 		}
+// 	}
+// }
+
+// func (s *Store) master(ctx context.Context, wg *sync.WaitGroup) {
+// 	watcher, err := fsnotify.NewWatcher()
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	defer watcher.Close()
+
+// 	if err := watcher.Add(s.path); err != nil {
+// 		panic(err)
+// 	}
+
+// 	fmt.Printf("Watching changes for file: %s\n", s.path)
+// 	eventch := make(chan notify.EventInfo, 1)
+
+// 	for {
+// 		select {
+// 		case <-ctx.Done():
+// 			wg.Done()
+// 			return
+// 		case event, ok := <-eventch:
+// 			if !ok {
+// 				continue
+// 			}
+// 			if err := s.load(); err != nil {
+// 				fn.Errorf("failed to load store: %v", err)
+// 			}
+// 			cluster := s.value.Load().(*Cluster)
+// 			if cluster == nil {
+// 				fn.Errorf("failed to load cluster from store")
+// 				continue
+// 			}
+// 			fmt.Println("sending events...")
+// 			for _, e := range s.events {
+// 				e.Update(ctx, cluster)
+// 			}
+// 		case err, ok := <-watcher.Errors:
+// 			if !ok {
+// 				return
+// 			}
+// 			fn.Errorf(err.Error())
+// 		}
+// 	}
+
+// 	if err := notify.Watch(s.path, eventch, notify.Write, notify.Rename); err != nil {
+// 		panic(err)
+// 	}
+// 	for event := range eventch {
+// 		fmt.Println(event.Path())
+// 	}
+// }
+
 func (s *Store) master(ctx context.Context, wg *sync.WaitGroup) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		panic(err)
-	}
-	defer watcher.Close()
-
-	if err := watcher.Add(s.path); err != nil {
-		panic(err)
-	}
-
 	fmt.Printf("Watching changes for file: %s\n", s.path)
 
 	for {
@@ -129,30 +214,19 @@ func (s *Store) master(ctx context.Context, wg *sync.WaitGroup) {
 		case <-ctx.Done():
 			wg.Done()
 			return
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
+		case <-time.After(time.Second * 5):
+			if err := s.load(); err != nil {
+				fn.Errorf("failed to load store: %v", err)
 			}
-			//  || event.Op&fsnotify.Rename == fsnotify.Rename
-			if event.Op&fsnotify.Write == fsnotify.Write {
-				if err := s.updateWithFile(); err != nil {
-					fn.Errorf("failed to update store: %v", err)
-				}
-				cluster := s.value.Load().(*Cluster)
-				if cluster == nil {
-					fn.Errorf("failed to load cluster from store")
-					continue
-				}
-				fmt.Println("sending events...")
-				for _, e := range s.events {
-					e.Update(ctx, cluster)
-				}
+			cluster := s.value.Load().(*Cluster)
+			if cluster == nil {
+				fn.Errorf("failed to load cluster from store")
+				continue
 			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
+			// fmt.Println("sending events...")
+			for _, e := range s.events {
+				e.Update(ctx, cluster)
 			}
-			fn.Errorf(err.Error())
 		}
 	}
 }
@@ -164,8 +238,17 @@ func (s *Store) slave(ctx context.Context, wg *sync.WaitGroup) {
 			wg.Done()
 			return
 		case <-time.After(time.Second * 5):
-			if err := s.update(); err != nil {
-				fn.Errorf("failed to update store: %v", err)
+			if err := s.load(); err != nil {
+				fn.Errorf("failed to load store: %v", err)
+			}
+			cluster := s.value.Load().(*Cluster)
+			if cluster == nil {
+				fn.Errorf("failed to load cluster from store")
+				continue
+			}
+			// fmt.Println("sending events...")
+			for _, e := range s.events {
+				e.Update(ctx, cluster)
 			}
 		}
 	}
@@ -175,18 +258,18 @@ func (s *Store) RegisterEvents(e Events) {
 	s.events = append(s.events, e)
 }
 
-func (s *Store) update() error {
+func (s *Store) load() error {
 	switch s.nodeName {
 	case "master":
-		return s.updateWithFile()
+		return s.loadWithFile()
 	default:
-		return s.updateWithRESTAPI()
+		return s.loadWithRESTAPI()
 	}
 }
 
-func (s *Store) updateWithFile() error {
-	s.Lock()
-	defer s.Unlock()
+func (s *Store) loadWithFile() error {
+	// s.Lock()
+	// defer s.Unlock()
 
 	data, err := os.ReadFile(s.path)
 	if err != nil {
@@ -203,9 +286,9 @@ func (s *Store) updateWithFile() error {
 	return nil
 }
 
-func (s *Store) updateWithRESTAPI() error {
-	s.Lock()
-	defer s.Unlock()
+func (s *Store) loadWithRESTAPI() error {
+	// s.Lock()
+	// defer s.Unlock()
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -269,8 +352,8 @@ func (s *Store) WriteVXLANMAC(nodeName, mac string) error {
 }
 
 func (s *Store) writeVXLANMACWithFile(nodeName, mac string) error {
-	s.Lock()
-	defer s.Unlock()
+	// s.Lock()
+	// defer s.Unlock()
 
 	value := s.value.Load()
 	if value == nil {
@@ -284,10 +367,13 @@ func (s *Store) writeVXLANMACWithFile(nodeName, mac string) error {
 	for _, node := range cluster.Node {
 		if node.Name == nodeName {
 			node.VXLAN.MAC = mac
-			return nil
 		}
 	}
-	return nil
+	bys, err := yaml.Marshal(cluster)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, bys, 0644)
 }
 
 func (s *Store) writeVXLANMACWithRESTAPI(nodeName, mac string) error {

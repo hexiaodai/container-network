@@ -19,7 +19,7 @@ type Containerd struct {
 }
 
 func (c *Containerd) Update(ctx context.Context, cluster *store.Cluster) {
-	fmt.Println("updating container")
+	// fmt.Println("updating container")
 
 	node, err := store.Instance.ReadNode(c.NodeName)
 	if err != nil {

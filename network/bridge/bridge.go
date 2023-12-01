@@ -68,7 +68,7 @@ func (b *Bridge) init() error {
 }
 
 func (b *Bridge) Update(ctx context.Context, cluster *store.Cluster) {
-	fmt.Println("updating bridge")
+	// fmt.Println("updating bridge")
 
 	node, err := store.Instance.ReadNode(b.NodeName)
 	if err != nil {
